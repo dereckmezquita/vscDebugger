@@ -1,54 +1,11 @@
-findLineNumR6 <- function(path, line, env) {
-  refs <- list()
-  # Normalize the target file path for comparison.
-  targetPath <- normalizePath(path, winslash = "/", mustWork = FALSE)
-  # Iterate over all objects in the given environment.
-  objs <- ls(env, all.names = TRUE)
-  for (objName in objs) {
-    obj <- get(objName, envir = env)
-    # Check if the object is an R6 class generator.
-    if (inherits(obj, "R6ClassGenerator")) {
-      # Get the list of public methods.
-      methodsList <- obj$public_methods
-      for (mName in names(methodsList)) {
-        f <- methodsList[[mName]]
-        sr <- attr(f, "srcref")
-        if (!is.null(sr)) {
-          srcfile <- attr(sr, "srcfile")
-          if (!is.null(srcfile)) {
-            filePath <- normalizePath(srcfile$filename, winslash = "/", mustWork = FALSE)
-            # Compare file paths.
-            if (filePath == targetPath) {
-              # sr is an integer vector: typically, sr[1] is the starting line and sr[3] the ending line.
-              minLine <- sr[1]
-              maxLine <- sr[3]
-              if (line >= minLine && line <= maxLine) {
-                # Create a reference entry for this method.
-                ref <- list(
-                  name = paste0(obj$classname, "$", mName),
-                  # The breakpoint will be set in the environment where the method is stored.
-                  env = obj$.__enclos_env__$public,
-                  at = line - minLine + 1,
-                  line = line,
-                  timediff = 0
-                )
-                refs <- c(refs, list(ref))
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-  return(refs)
-}
+
 
 setBreakpoints <- function(
   sourceBreakpoints,
-  unsetBreakpoints = FALSE,
-  envs = list(),
-  inNormalEnvs = TRUE
-) {
+  unsetBreakpoints=FALSE,
+  envs=list(),
+  inNormalEnvs=TRUE
+){
   path <- sourceBreakpoints$source$path
   bps <- sourceBreakpoints$breakpoints
   refList <- list()
@@ -66,14 +23,6 @@ setBreakpoints <- function(
       )
       if(!inherits(newRefs, 'try-error')){
         refs <- c(refs, newRefs)
-      }
-      # NEW: Also search within R6 classes in the environment.
-      newRefsR6 <- try(
-        findLineNumR6(path, line, env),
-        silent = TRUE
-      )
-      if (!inherits(newRefsR6, 'try-error')) {
-        refs <- c(refs, newRefsR6)
       }
     }
 
