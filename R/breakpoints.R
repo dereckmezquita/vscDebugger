@@ -21,22 +21,47 @@ setBreakpoints <- function(
         findLineNum(path, line, nameonly = FALSE, envir=env, lastenv=env),
         silent = TRUE
       )
-      if(!inherits(newRefs, 'try-error')){
+      if (!inherits(newRefs, "try-error") && length(newRefs) > 0) {
         refs <- c(refs, newRefs)
       }
     }
 
-    # store occurences of line (for R)
+    # If no references were found, then try to see whether any of the envs contain an R6 class generator.
+    if (length(refs) == 0) {
+      for (env in envs) {
+        for (objName in ls(env, all.names = TRUE)) {
+          obj <- env[[objName]]
+          if (isR6ClassGenerator(obj)) {
+            # if the generator has a public method with the breakpoint name…
+            if (!is.null(obj$public_methods[[bp$name]])) {
+              # use the public_methods environment instead
+              newEnv <- obj$public_methods
+              newRefs <- try(
+                findLineNum(path, line, nameonly = FALSE, envir = newEnv, lastenv = newEnv),
+                silent = TRUE
+              )
+              if (!inherits(newRefs, "try-error") && length(newRefs) > 0) {
+                refs <- c(refs, newRefs)
+                # update the breakpoint’s environment to the one inside public_methods
+                bp$env <- newEnv
+                break
+              }
+            }
+          }
+        }
+        if (length(refs) > 0) break
+      }
+    }
+
+    # add all found references for this breakpoint to our list
     refList <- c(refList, refs)
 
     # store info about bp (for vsc)
     if (length(refs) > 0) {
       bp$verified <- !unsetBreakpoints
       bp$line <- refs[[1]]$line
+      bp$at <- refs[[1]]$at  # store the location info
       bp$changed <- TRUE
-    } else {
-      # bp$verified <- FALSE
-      # bp$line <- 0
     }
     bp$attempted <- TRUE
     bps[[i]] <- bp
