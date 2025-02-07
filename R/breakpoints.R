@@ -1,4 +1,6 @@
-
+isR6ClassGenerator <- function(x) {
+  inherits(x, "R6ClassGenerator")
+}
 
 setBreakpoints <- function(
   sourceBreakpoints,
