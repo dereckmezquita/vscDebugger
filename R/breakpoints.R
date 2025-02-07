@@ -4,10 +4,10 @@ isR6ClassGenerator <- function(x) {
 
 setBreakpoints <- function(
   sourceBreakpoints,
-  unsetBreakpoints=FALSE,
-  envs=list(),
-  inNormalEnvs=TRUE
-){
+  unsetBreakpoints = FALSE,
+  envs = list(),
+  inNormalEnvs = TRUE
+) {
   path <- sourceBreakpoints$source$path
   bps <- sourceBreakpoints$breakpoints
   refList <- list()
@@ -16,11 +16,11 @@ setBreakpoints <- function(
     bp <- bps[[i]]
     line <- bp$requestedLine
 
-    # find line number in additional envs (= debugged packages)
+    # Try to find the breakpoint location normally in all given environments.
     refs <- list()
-    for(env in envs){
+    for (env in envs) {
       newRefs <- try(
-        findLineNum(path, line, nameonly = FALSE, envir=env, lastenv=env),
+        findLineNum(path, line, nameonly = FALSE, envir = env, lastenv = env),
         silent = TRUE
       )
       if (!inherits(newRefs, "try-error") && length(newRefs) > 0) {
@@ -28,15 +28,15 @@ setBreakpoints <- function(
       }
     }
 
-    # If no references were found, then try to see whether any of the envs contain an R6 class generator.
+    # If no references were found, try to see if any environment holds an R6 generator
+    # that defines the method (e.g. inside its public_methods list)
     if (length(refs) == 0) {
       for (env in envs) {
         for (objName in ls(env, all.names = TRUE)) {
           obj <- env[[objName]]
           if (isR6ClassGenerator(obj)) {
-            # if the generator has a public method with the breakpoint name…
-            if (!is.null(obj$public_methods[[bp$name]])) {
-              # use the public_methods environment instead
+            # Instead of direct indexing, check if public_methods exists and bp$name is among its names
+            if (!is.null(obj$public_methods) && bp$name %in% names(obj$public_methods)) {
               newEnv <- obj$public_methods
               newRefs <- try(
                 findLineNum(path, line, nameonly = FALSE, envir = newEnv, lastenv = newEnv),
@@ -44,7 +44,7 @@ setBreakpoints <- function(
               )
               if (!inherits(newRefs, "try-error") && length(newRefs) > 0) {
                 refs <- c(refs, newRefs)
-                # update the breakpoint’s environment to the one inside public_methods
+                # Update breakpoint’s environment so that later trace() applies in the public_methods env
                 bp$env <- newEnv
                 break
               }
@@ -55,10 +55,10 @@ setBreakpoints <- function(
       }
     }
 
-    # add all found references for this breakpoint to our list
+    # Add found references for this breakpoint to our list.
     refList <- c(refList, refs)
 
-    # store info about bp (for vsc)
+    # Update breakpoint info if at least one reference was found.
     if (length(refs) > 0) {
       bp$verified <- !unsetBreakpoints
       bp$line <- refs[[1]]$line
@@ -69,13 +69,12 @@ setBreakpoints <- function(
     bps[[i]] <- bp
   }
 
-  # summarize refs: all bps in the same function need to be set with one call to trace()
+  # Summarize refs (group breakpoints in the same function)
   summarizedRefs <- summarizeRefs(refList)
 
-  # set breakpoints
-  for(sRef in summarizedRefs){
-    if(unsetBreakpoints){
-      # remove breakpoints
+  # Set (or remove) breakpoints via trace()/untrace() calls.
+  for (sRef in summarizedRefs) {
+    if (unsetBreakpoints) {
       suppressMessages(try(
         untrace(
           what = sRef$name,
@@ -83,18 +82,16 @@ setBreakpoints <- function(
         ),
         silent = TRUE
       ))
-    } else{
-      # use generic trace function -> does not preserve source info
+    } else {
       suppressMessages(try(
         trace(
           what = sRef$name,
-          tracer = quote({vscDebugger::.vsc.preBreakpoint(); browser()}),
+          tracer = quote({ vscDebugger::.vsc.preBreakpoint(); browser() }),
           at = sRef$at,
           where = sRef$env
         ),
         silent = TRUE
       ))
-      # add source info to lines overwritten by trace():
       fixSrcrefOnTracedFunction(
         what = sRef$name,
         at = sRef$at,
@@ -103,7 +100,7 @@ setBreakpoints <- function(
     }
   }
 
-  # send breakpoints to vsc
+  # Send updated breakpoint info back to VS Code.
   bps <- sendBreakpoints(bps)
 
   sourceBreakpoints$breakpoints <- bps
