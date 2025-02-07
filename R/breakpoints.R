@@ -35,8 +35,12 @@ setBreakpoints <- function(
         for (objName in ls(env, all.names = TRUE)) {
           obj <- env[[objName]]
           if (isR6ClassGenerator(obj)) {
-            # Instead of direct indexing, check if public_methods exists and bp$name is among its names
-            if (!is.null(obj$public_methods) && bp$name %in% names(obj$public_methods)) {
+            # Only try if bp$name is not NULL, not NA, and not an empty string.
+            if (!is.null(obj$public_methods) &&
+                !is.null(bp$name) &&
+                !is.na(bp$name) &&
+                bp$name != "" &&
+                bp$name %in% names(obj$public_methods)) {
               newEnv <- obj$public_methods
               newRefs <- try(
                 findLineNum(path, line, nameonly = FALSE, envir = newEnv, lastenv = newEnv),
@@ -44,7 +48,7 @@ setBreakpoints <- function(
               )
               if (!inherits(newRefs, "try-error") && length(newRefs) > 0) {
                 refs <- c(refs, newRefs)
-                # Update breakpoint’s environment so that later trace() applies in the public_methods env
+                # Update the breakpoint’s environment to the one inside public_methods.
                 bp$env <- newEnv
                 break
               }
@@ -76,10 +80,7 @@ setBreakpoints <- function(
   for (sRef in summarizedRefs) {
     if (unsetBreakpoints) {
       suppressMessages(try(
-        untrace(
-          what = sRef$name,
-          where = sRef$env
-        ),
+        untrace(what = sRef$name, where = sRef$env),
         silent = TRUE
       ))
     } else {
@@ -92,17 +93,12 @@ setBreakpoints <- function(
         ),
         silent = TRUE
       ))
-      fixSrcrefOnTracedFunction(
-        what = sRef$name,
-        at = sRef$at,
-        where = sRef$env
-      )
+      fixSrcrefOnTracedFunction(what = sRef$name, at = sRef$at, where = sRef$env)
     }
   }
 
   # Send updated breakpoint info back to VS Code.
   bps <- sendBreakpoints(bps)
-
   sourceBreakpoints$breakpoints <- bps
 
   return(sourceBreakpoints)
